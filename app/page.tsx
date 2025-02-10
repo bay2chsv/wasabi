@@ -1,101 +1,159 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useCallback } from "react";
+import { useDropzone } from "react-dropzone";
+import { calculateMD5 } from "./utils/md5";
+import FileListPage from "./components/FileListPage";
+
+export default function UploadPage() {
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    setFiles(acceptedFiles);
+  }, []);
+
+  const [refreshFileList, setRefreshFileList] = useState(false);
+
+  const uploadFiles = async () => {
+    if (files.length === 0) return alert("Please select files to upload");
+
+    setUploading(true);
+
+    try {
+      // Calculate MD5 hash for each file
+      const fileData = await Promise.all(
+        files.map(async (file) => ({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          md5: await calculateMD5(file),
+        }))
+      );
+
+      // Request pre-signed URLs from backend
+      const response = await fetch("/api/files/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: fileData }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error);
+      }
+
+      const { presignedUrls } = await response.json();
+
+      // Upload each file to Wasabi
+      await Promise.all(
+        presignedUrls.map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          async ({ url, fields, key, expectedEtag }: any, index: number) => {
+            const formData = new FormData();
+            Object.entries(fields).forEach(([k, v]) =>
+              formData.append(k, v as string)
+            );
+            formData.append("file", files[index]);
+
+            await fetch(url, {
+              method: "POST",
+              body: formData,
+            });
+
+            const etagResponse = await fetch("/api/files/upload/verify-etag", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ key, expectedMd5: expectedEtag }),
+            });
+
+            if (!etagResponse.ok) {
+              throw new Error(
+                `ETag mismatch for ${files[index].name}. Upload failed.`
+              );
+            }
+
+            return { key, expectedEtag, presignedUrl: url };
+          }
+        )
+      );
+
+      setFiles([]);
+      setRefreshFileList((prev) => !prev);
+      alert("Upload successful!");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      console.error("Upload failed", error);
+      alert(error.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const { getRootProps, getInputProps } = useDropzone({ onDrop });
+
+  const removeFile = (index: number) => {
+    setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <>
+      <div className="max-w-lg mx-auto mt-10 p-6 border rounded-lg shadow-lg">
+        <h1 className="text-2xl font-bold mb-4">Upload Files</h1>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+        <div
+          {...getRootProps()}
+          className="border-dashed border-2 p-10 text-center cursor-pointer"
+        >
+          <input {...getInputProps()} />
+          <p>Click to select</p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+
+        {files.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-lg font-semibold">Files to upload:</h3>
+            <ul>
+              {files.map((file, index) => (
+                <li
+                  key={file.name}
+                  className="flex justify-between items-center"
+                >
+                  <span>{file.name}</span>
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="size-6"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9.75 14.25 12m0 0 2.25 2.25M14.25 12l2.25-2.25M14.25 12 12 14.25m-2.58 4.92-6.374-6.375a1.125 1.125 0 0 1 0-1.59L9.42 4.83c.21-.211.497-.33.795-.33H19.5a2.25 2.25 0 0 1 2.25 2.25v10.5a2.25 2.25 0 0 1-2.25 2.25h-9.284c-.298 0-.585-.119-.795-.33Z"
+                      />
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <button
+          onClick={uploadFiles}
+          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-md disabled:opacity-50"
+          disabled={uploading || files.length === 0}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          {uploading ? "Uploading..." : "Upload"}
+        </button>
+      </div>
+
+      <FileListPage refreshFileList={refreshFileList} />
+    </>
   );
 }
