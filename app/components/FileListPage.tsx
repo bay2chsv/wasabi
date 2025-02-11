@@ -22,6 +22,7 @@ export default function FileListPage({
           new Date(b.lastModified).getTime() -
           new Date(a.lastModified).getTime()
       );
+
       setFiles(sortedFiles || []);
     }
   };
@@ -43,7 +44,6 @@ export default function FileListPage({
       if (!response.ok) throw new Error(data.error);
 
       const fileResponse = await fetch(data.url);
-      console.log(fileResponse);
       const blob = await fileResponse.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -52,8 +52,8 @@ export default function FileListPage({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      console.error("Download failed", error);
       alert("Download failed");
     }
   };

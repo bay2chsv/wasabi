@@ -55,7 +55,6 @@ export default function UploadPage() {
               formData.append(k, v as string)
             );
             formData.append("file", files[index]);
-
             await fetch(url, {
               method: "POST",
               body: formData,
@@ -83,7 +82,6 @@ export default function UploadPage() {
       alert("Upload successful!");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
-      console.error("Upload failed", error);
       alert(error.message || "Upload failed");
     } finally {
       setUploading(false);

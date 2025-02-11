@@ -11,7 +11,6 @@ export async function POST(req: NextRequest) {
       Key: key,
     });
     const headResponse = await s3Client.send(headCommand);
-
     const wasabiEtag = headResponse.ETag?.replace(/"/g, "");
     if (wasabiEtag !== expectedMd5) {
       // ETag mismatch case will delete the file
